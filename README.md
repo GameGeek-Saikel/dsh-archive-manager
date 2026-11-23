@@ -46,7 +46,7 @@ npx @deepseek-ai/dsh web
 
 This installs the single npm package through the DSH CLI, which applies the package's root `cordis.patch.yml` (disables the stock `workspace` and `session-projection-cache` rows; inserts `workspace-archive-manager`, `session-projection-cache-archive-manager`, and `ui-workspace-archive-manager`). The stock `ui-workspace` row is left enabled.
 
-The plugin declares and is verified against DSH `^0.2.0-rc.2`. Its `@deepseek-ai/dsh*` peer ranges name the DSH release line it runs on, and the harness refuses to load a bundle whose peers reject the running runtime — so a version built for one line is never installed into the other.
+The plugin declares and is verified against DSH `~0.2.3-alpha.2`. Its `@deepseek-ai/dsh*` peer ranges name the DSH release line it runs on, and the harness refuses to load a bundle whose peers reject the running runtime — so a version built for one line is never installed into the other.
 
 ## Overview
 
