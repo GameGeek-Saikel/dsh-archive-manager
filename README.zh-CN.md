@@ -46,7 +46,7 @@ npx @deepseek-ai/dsh web
 
 通过 DSH CLI 安装单个 npm 包，它会应用包内根 `cordis.patch.yml`（禁用官方 `workspace`、`session-projection-cache` 两行；插入 `workspace-archive-manager`、`session-projection-cache-archive-manager`、`ui-workspace-archive-manager`）。官方 `ui-workspace` 行保持启用。
 
-插件声明并已验证兼容 DSH `^0.2.0-rc.2`。它的 `@deepseek-ai/dsh*` 对等依赖即所能运行的发布线；运行时不满足时 harness 会拒绝加载该 bundle，因此为某条线构建的版本不会被装进另一条线。
+插件声明并已验证兼容 DSH `~0.2.2-rc.5`。它的 `@deepseek-ai/dsh*` 对等依赖即所能运行的发布线；运行时不满足时 harness 会拒绝加载该 bundle，因此为某条线构建的版本不会被装进另一条线。
 
 ## 概述
 
