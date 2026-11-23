@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
 		const NS = "archiveManager";
 		const zh = {
 			"menu.deleteSession": "删除会话",
+			"shortcut.noSession": "请先选择一个会话",
 			"dialog.title": "删除会话",
 			"dialog.desc": "此操作不可撤销：会话记录、工作区记账、归档标记与投影缓存都会被永久删除；该会话派生的子代理会话一并删除。",
 			"dialog.warning": "分叉出的会话是独立会话，不会被一并删除。",
@@ -22,6 +23,7 @@ window.__ModuleLoader__.load({
 		};
 		const en = {
 			"menu.deleteSession": "Delete session",
+			"shortcut.noSession": "Select a session first",
 			"dialog.title": "Delete session",
 			"dialog.desc": "This cannot be undone: the session log, its workspace accounting, its archive marker, and its projection-cache row are permanently removed. Subagent sessions derived from it are deleted too.",
 			"dialog.warning": "Forked sessions are independent and are never deleted with it.",
@@ -112,22 +114,19 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region dsh-archive-manager: surfaces
+		/** Keyed icon the Session menu entry renders through `contextMenu.icon`. */
+		const DELETE_ICON_KEY = "archive-manager.deleteSession";
+		/** Command id the entry displays and the shortcut service dispatches. */
+		const DELETE_COMMAND_ID = "archiveManager.deleteSession";
 		/**
-		* One Session's "..." menu row. DSH 0.1.7 hands every `sidebar.
-		* workspaces.session.menu.item` entry the row's Session identity and the
-		* menu-open hook; closing the menu and raising the confirmation is all
-		* this row does.
+		* The Session the shortcuts act on: the one a main Conversation retains,
+		* the same row the shipped Session commands resolve.
+		* @param ctx - client root context carrying the Session list.
+		* @returns the retained row, or undefined when no Session is open.
 		*/
-		function SessionDeleteMenuItem({ sessionId, useMenuOpenState, requestDelete, t }) {
-			const setMenuOpen = useMenuOpenState()[1];
-			return react.createElement(_deepseek_ai_dsh_client_ui_primitives.MenuItemButton, {
-				danger: true,
-				separatorBefore: true,
-				onSelect: () => {
-					setMenuOpen(false);
-					requestDelete(sessionId);
-				}
-			}, t("menu.deleteSession"));
+		function currentSession(ctx) {
+			const rows = ctx.sessions.list.getSnapshot().byId;
+			return Object.values(rows).find((row) => ((row.retainedBy ?? {}).mainView ?? 0) > 0);
 		}
 		/**
 		* The frame-wide confirmation. `Modal` portals itself to the body, so the
@@ -180,8 +179,8 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region dsh-archive-manager: plugin body
-		/** Services required for locale registration, the Remote mount, and the slot entries. */
-		const inject = ["slots", "locale", "remote"];
+		/** Services required for the locale, the Remote mount, the menu, and its shortcut. */
+		const inject = ["contextMenus", "shortcuts", "sessions", "slots", "locale", "remote"];
 		/** One Remote call through the namespace this plugin mounted. */
 		async function callDelete(ctx, sessionId) {
 			// `ctx.get` rather than a property chain: this fiber performs the
@@ -207,13 +206,59 @@ window.__ModuleLoader__.load({
 			}), "archive-manager: dictionaries");
 			const t = ctx.locale.bind(NS);
 			const unmount = await ctx.remote.$mount(ARCHIVE_MANAGER_REMOTE);
-			ctx.slots.inject("sidebar.workspaces.session.menu.item", () => ctx.slots.register({
-				name: "sidebar.workspaces.session.menu.item",
-				id: "@gamegeek-saikel/dsh-archive-manager/delete",
-				order: 500,
-				locale: NS,
-				inject: () => ({ requestDelete: (sessionId) => setPending(sessionId) })
-			}, SessionDeleteMenuItem));
+			// The entry is a structured contribution, not a `sidebar.workspaces.
+			// session.menu.item` component: that legacy Slot always renders BEFORE
+			// the shipped Archive action, so only `afterContent` with a later order
+			// seats permanent deletion below Archive at the menu's bottom.
+			ctx.effect(() => ctx.contextMenus.register({
+				id: DELETE_COMMAND_ID,
+				target: "session",
+				order: 700,
+				observe: () => [ctx.locale],
+				resolve: (session) => [{
+					id: "delete",
+					label: t("menu.deleteSession"),
+					icon: { key: DELETE_ICON_KEY },
+					danger: true,
+					separatorBefore: true,
+					afterContent: true,
+					commandId: DELETE_COMMAND_ID,
+					run: () => {
+						setPending(session.sessionId);
+					}
+				}]
+			}), "archive-manager: delete menu action");
+			// The keyed icon the entry above renders (`contextMenu.icon`), shared
+			// with the shipped workspace delete so both read as the same action.
+			ctx.slots.inject("contextMenu.icon", function* () {
+				const Icon = _deepseek_ai_dsh_client_ui_primitives.IconTrashOutlineRegular;
+				if (typeof Icon === "function") yield ctx.slots.register({ name: "contextMenu.icon", key: DELETE_ICON_KEY }, Icon);
+			});
+			// The same command the menu displays beside its label. Deleting always
+			// goes through the confirmation dialog, so the binding never destroys
+			// anything on its own.
+			ctx.effect(() => ctx.shortcuts.register({
+				id: DELETE_COMMAND_ID,
+				label: () => t("menu.deleteSession"),
+				aliases: ["delete session", "remove session", "删除会话"],
+				defaults: {
+					// macOS keeps Cmd+Option+D free for the Dock; Windows/Linux and the
+					// Web build match the row's other commands on Ctrl+Alt.
+					"desktop:macos": { code: "KeyD", modifiers: ["primary", "shift"] },
+					"desktop:windows": { code: "KeyD", modifiers: ["primary", "alt"] },
+					"desktop:linux": { code: "KeyD", modifiers: ["primary", "alt"] },
+					"web:macos": { code: "KeyD", modifiers: ["primary", "shift"] },
+					"web:windows": { code: "KeyD", modifiers: ["primary", "alt"] }
+				},
+				regions: ["page", "editable"],
+				modals: ["sidebar"],
+				resolve: () => {
+					const session = currentSession(ctx);
+					return session === undefined
+						? { status: "blocked", reason: t("shortcut.noSession") }
+						: { status: "handled", run: () => { setPending(session.id); } };
+				}
+			}), "archive-manager: delete shortcut");
 			ctx.slots.inject("shell.overlay", () => ctx.slots.register({
 				name: "shell.overlay",
 				id: "@gamegeek-saikel/dsh-archive-manager/delete-dialog",
@@ -239,7 +284,9 @@ window.__ModuleLoader__.load({
 				subscribe,
 				usePending,
 				callDelete,
-				SessionDeleteMenuItem,
+				currentSession,
+				DELETE_ICON_KEY,
+				DELETE_COMMAND_ID,
 				DeleteSessionDialog
 			}
 		};

@@ -37,10 +37,14 @@ with exactly two runtime requires, both from the shell's platform seed table:
    `create()` factory returns a tiny hand-written schema, so no second zod copy
    enters the bundle. (0.2.0's shims exposed `schema.parse()` only, which
    0.1.7's registry rejects with "strict codec has no create() factory".)
-3. **`sidebar.workspaces.session.menu.item`** — one `MenuItemButton`
-   (`danger: true`, `separatorBefore: true`, order 500, after the shipped
-   pin 100 / rename 200 / fork 300 / archive 400 rows). It closes the menu
-   through the injected `useMenuOpenState` hook and raises the request.
+3. **`ctx.contextMenus.register`** — one `session`-target action
+   (`danger: true`, `separatorBefore: true`, `afterContent: true`, order 700,
+   `commandId: 'archiveManager.deleteSession'`) that raises the request. The
+   legacy `sidebar.workspaces.session.menu.item` Slot is NOT used: its entries
+   always render before the shipped Archive row (600, `afterContent`), so only
+   a later `afterContent` contribution seats deletion at the menu's bottom.
+   The trash icon arrives through the keyed `contextMenu.icon` slot, and
+   `ctx.shortcuts.register` binds the command shown beside the label.
 4. **`shell.overlay`** — the frame-wide `Modal` confirmation. A menu row
    unmounts with the click that closes the menu, so the dialog cannot live
    inside it; the two contributions share one module-level pending-request
