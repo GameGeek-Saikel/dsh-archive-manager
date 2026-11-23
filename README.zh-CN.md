@@ -12,7 +12,7 @@
 自 DSH 0.1.7 起，归档能力已由框架自身提供——`WorkspaceRegistry.archiveSession` / `unarchiveSession`、归档筛选（隐藏 / 显示 / 仅归档）、归档行样式、置顶、会话活动门禁。因此本插件**不再 fork 或替换任何浏览器表面**：官方 `ui-workspace` 行保持组合中的原位，插件只向官方侧边栏贡献一个行菜单动作及其确认对话框。
 
 - Host 半区（内部 `dsh-archive-manager-workspace` / `dsh-archive-manager-projcache`）：`WorkspaceRegistry` 与 `SessionProjectionCache` 子类，新增 `deleteSession` 与 `delete(id)` / `whenIdle()`，以 Typert Remote 端点暴露。
-- Client 半区（内部 `dsh-archive-manager-client`）：小型浏览器 bundle，注册 `sidebar.workspaces.session.menu.item`（危险样式「删除会话」行）与 frame 级 `shell.overlay` 确认对话框，内置简体中文与英文。
+- Client 半区（内部 `dsh-archive-manager-client`）：小型浏览器 bundle，向 `contextMenus` 贡献一条结构化动作（危险样式「删除会话」，渲染在归档之下），配有 keyed 垃圾桶图标与 `删除会话` 命令，另有 frame 级 `shell.overlay` 确认对话框，内置简体中文与英文。
 
 插件以**单个 npm 包**（`@gamegeek-saikel/dsh-archive-manager`）交付，三个实现作为包内子模块。根 `cordis.patch.yml` 只替换它需要扩展的两个 host 行并插入自己的行。**官方包文件零改动。**
 
@@ -46,7 +46,7 @@ npx @deepseek-ai/dsh web
 
 通过 DSH CLI 安装单个 npm 包，它会应用包内根 `cordis.patch.yml`（禁用官方 `workspace`、`session-projection-cache` 两行；插入 `workspace-archive-manager`、`session-projection-cache-archive-manager`、`ui-workspace-archive-manager`）。官方 `ui-workspace` 行保持启用。
 
-插件声明并已验证兼容 DSH `~0.2.2-rc.5`。它的 `@deepseek-ai/dsh*` 对等依赖即所能运行的发布线；运行时不满足时 harness 会拒绝加载该 bundle，因此为某条线构建的版本不会被装进另一条线。
+插件声明并已验证兼容 DSH `~0.2.3-alpha.2`。它的 `@deepseek-ai/dsh*` 对等依赖即所能运行的发布线；运行时不满足时 harness 会拒绝加载该 bundle，因此为某条线构建的版本不会被装进另一条线。
 
 ## 概述
 
@@ -67,7 +67,7 @@ npx @deepseek-ai/dsh web
 | 远程 API | Typert 端点 `workspaceRegistry/deleteSession`；旧 `/api/workspace.*` 路由不受影响 |
 | 继承 | 归档 / 取消归档 / 置顶 / 活动门禁均为官方 `WorkspaceRegistry` 原方法，未做任何覆写 |
 | 删除语义 | 彻底删除；live 会话 flush → detach → `session/disposed`；缓存写回先于行删除；子代理级联（仅 `origin: "subagent"`——fork 分支绝不级联） |
-| UI 表面 | 一个 `sidebar.workspaces.session.menu.item` 行 + 一个 `shell.overlay` 对话框 |
+| UI 表面 | 一条结构化 `contextMenus` 动作（图标 + 命令）+ 一个 `shell.overlay` 对话框 |
 | 本地化 | 简体中文（键源）+ 英文 |
 | 测试 | 3 个 `node:test` 套件共 19 个用例（host、client bundle、client remote） |
 
@@ -77,14 +77,14 @@ npx @deepseek-ai/dsh web
 
 | 表面 | 说明 |
 |---|---|
-| 会话行菜单 | 危险样式的「删除会话」行，与官方 置顶/重命名/分叉/归档 行以分隔线隔开（order 500） |
+| 会话行菜单 | 危险样式的「删除会话」位于菜单最底下、归档之下（`afterContent`、order 700），带垃圾桶图标与自己的快捷键 |
 | 删除对话框 | body portal 的二次确认：说明清除范围、fork 分支例外、处理中状态；失败时保持打开并显示 host 的错误信息 |
 | 删除当前打开的会话 | 输入区置灰、行消失、界面不崩溃 |
 | 归档会话 | 行为不变：官方筛选（隐藏 / 显示 / 仅归档）、样式、守卫、取消归档仍由其负责 |
 
 ### 重启验证清单
 
-1. 会话行的「...」菜单在官方各行**之后**出现「删除会话」，并以分隔线隔开。
+1. 会话行的「...」菜单在官方「归档会话」**之下**出现「删除会话」，以分隔线隔开，带垃圾桶图标与快捷键标注。
 2. 确认后该会话从列表消失，且磁盘无残留：
    - `~/.dsh\sessions\…\session-<id>\` 目录不存在；
    - `~/.dsh\storages\workspace.json` 的 `global.archivedSessionIds`、`global.pinnedSessionIds` 与所有 workspace 的 `sessionIds` 均无该 id；
@@ -118,7 +118,8 @@ npx @deepseek-ai/dsh web
 
 一个手写的自注册 bundle（`window.__ModuleLoader__.load({ id, factory })`），只依赖 shell 平台种子表（`react`、`@deepseek-ai/dsh-client-ui-primitives`）。它贡献：
 
-- `sidebar.workspaces.session.menu.item`——一个 `MenuItemButton`（`danger`、`separatorBefore`、order 500），点击后关闭菜单并抛出删除请求；
+- `ctx.contextMenus.register`——一条 `session` 目标动作（`danger`、`separatorBefore`、`afterContent`、order 700、`commandId: archiveManager.deleteSession`），选中后抛出删除请求；图标经 keyed `contextMenu.icon` 槽注册，快捷键经 `ctx.shortcuts` 注册为 `archiveManager.deleteSession`；
+- `sidebar.workspaces.session.menu.item`——不再使用：该旧槽永远渲染在归档之前；
 - `shell.overlay`——frame 级 `Modal` 确认框，因此对话框的生命周期长于打开它的菜单行；
 - `ARCHIVE_MANAGER_REMOTE`——`workspaceRegistry/deleteSession` 描述符，strict codec 遵循 0.2.0 生成契约 `{ mode: 'strict', typeSymbol, create() }`，并用无依赖 shim 实现（bundle 内不引入第二份 zod）。
 

@@ -27,6 +27,7 @@ const { renderToStaticMarkup } = statics["react-dom/server"];
 // cannot load. The bundle only renders MenuItemButton/Button/Modal, so a small
 // functional stand-in keeps the surfaces renderable and assertable.
 const primitivesStandIn = {
+	IconTrashOutlineRegular: (props) => react.createElement("svg", { "data-icon": "trash", ...props }),
 	MenuItemButton: ({ children, danger, separatorBefore, onSelect }) =>
 		react.createElement("button", {
 			type: "button",
@@ -76,13 +77,48 @@ const zhT = (key, params) => {
 
 test("bundle materializes with apply/inject and the __test surface", () => {
 	assert.equal(typeof bundle.apply, "function");
-	assert.deepEqual(bundle.inject, ["slots", "locale", "remote"]);
+	assert.deepEqual(bundle.inject, ["contextMenus", "shortcuts", "sessions", "slots", "locale", "remote"]);
 	assert.equal(typeof t.callDelete, "function");
-	assert.equal(typeof t.SessionDeleteMenuItem, "function");
+	assert.equal(typeof t.currentSession, "function");
 	assert.equal(typeof t.DeleteSessionDialog, "function");
 	// The bundle requires nothing beyond the shared platform modules.
 	assert.equal(typeof bundle.NS, "string");
 });
+
+/**
+ * A client context recording what `apply` registers. `effect` runs its factory
+ * immediately, mirroring the framework's own initial run.
+ * @param {object} options - `rows` is the Session list's `byId` snapshot.
+ * @returns the fake context and the captured registrations.
+ */
+function fakeCtx({ rows = {} } = {}) {
+	const captured = { menus: [], shortcuts: [], icons: [], injections: [] };
+	const ctx = {
+		effect: (factory) => { factory(); return () => {}; },
+		locale: { register: () => () => {}, bind: () => zhT },
+		remote: { $mount: async () => () => {} },
+		sessions: { list: { getSnapshot: () => ({ byId: rows }) } },
+		contextMenus: { register: (contribution) => { captured.menus.push(contribution); return () => {}; } },
+		shortcuts: { register: (command) => { captured.shortcuts.push(command); return () => {}; } },
+		slots: {
+			inject: (name, factory) => { captured.injections.push({ name, factory }); },
+			register: (options, component) => { captured.icons.push({ options, component }); return () => {}; }
+		},
+		get: () => void 0
+	};
+	return { ctx, captured };
+}
+
+/** Drain one recorded slot injection (generator or factory) into its registrations. */
+function drain(captured, name) {
+	const entry = captured.injections.find((candidate) => candidate.name === name);
+	if (entry === void 0) return undefined;
+	const result = entry.factory();
+	if (result !== null && typeof result === "object" && typeof result[Symbol.iterator] === "function") {
+		for (const _ of result) { /* each yield already ran ctx.slots.register */ }
+	}
+	return entry;
+}
 
 test("Remote contribution declares exactly the deleteSession endpoint with strict codecs", () => {
 	assert.equal(t.ARCHIVE_MANAGER_REMOTE.package, "@gamegeek-saikel/dsh-archive-manager");
@@ -129,22 +165,76 @@ test("pending-deletion store notifies subscribers and dedupes the same id", () =
 	assert.equal(t.getPending(), null);
 });
 
-test("the row-menu action is a destructive, group-starting entry that closes the menu and raises the request", () => {
-	const closed = [];
-	const requested = [];
-	const element = t.SessionDeleteMenuItem({
-		sessionId: "s1",
-		useMenuOpenState: () => [true, (open) => closed.push(open)],
-		requestDelete: (sessionId) => requested.push(sessionId),
-		t: zhT
+test("the menu entry renders below Archive and raises the confirmation", async () => {
+	const { ctx, captured } = fakeCtx();
+	await bundle.apply(ctx);
+	assert.equal(captured.menus.length, 1);
+	const [menu] = captured.menus;
+	assert.equal(menu.id, t.DELETE_COMMAND_ID);
+	assert.equal(menu.target, "session");
+	// Archive is 600 with afterContent; the entry must follow it, not precede it.
+	assert.ok(menu.order > 600, `order ${menu.order} must sort after Archive's 600`);
+	const actions = menu.resolve({ sessionId: "s1", displayTitle: "t" });
+	assert.equal(actions.length, 1);
+	const [action] = actions;
+	assert.deepEqual({
+		id: action.id,
+		label: action.label,
+		icon: action.icon,
+		danger: action.danger,
+		separatorBefore: action.separatorBefore,
+		afterContent: action.afterContent,
+		commandId: action.commandId
+	}, {
+		id: "delete",
+		label: "删除会话",
+		icon: { key: t.DELETE_ICON_KEY },
+		danger: true,
+		separatorBefore: true,
+		afterContent: true,
+		commandId: t.DELETE_COMMAND_ID
 	});
-	assert.equal(element.type, primitivesStandIn.MenuItemButton);
-	assert.equal(element.props.danger, true);
-	assert.equal(element.props.separatorBefore, true);
-	assert.equal(element.props.children, "删除会话");
-	element.props.onSelect();
-	assert.deepEqual(closed, [false]);
-	assert.deepEqual(requested, ["s1"]);
+	t.setPending(null);
+	action.run();
+	assert.equal(t.getPending(), "s1");
+	t.setPending(null);
+});
+
+ test("the keyed trash icon is contributed for the entry", async () => {
+	const { ctx, captured } = fakeCtx();
+	await bundle.apply(ctx);
+	assert.ok(drain(captured, "contextMenu.icon") !== undefined, "the icon slot is injected");
+	assert.equal(captured.icons.length, 1);
+	assert.deepEqual(captured.icons[0].options, { name: "contextMenu.icon", key: t.DELETE_ICON_KEY });
+	assert.equal(captured.icons[0].component, primitivesStandIn.IconTrashOutlineRegular);
+});
+
+ test("the shortcut shows beside the label and only opens the confirmation", async () => {
+	const { ctx, captured } = fakeCtx({ rows: { s1: { id: "s1", retainedBy: { mainView: 1 } } } });
+	await bundle.apply(ctx);
+	assert.equal(captured.shortcuts.length, 1);
+	const [command] = captured.shortcuts;
+	assert.equal(command.id, t.DELETE_COMMAND_ID);
+	assert.equal(command.label(), "删除会话");
+	assert.deepEqual(command.regions, ["page", "editable"]);
+	assert.deepEqual(command.modals, ["sidebar"]);
+	assert.equal(command.defaults["web:windows"].code, "KeyD");
+	assert.deepEqual(command.defaults["web:windows"].modifiers, ["primary", "alt"]);
+	// macOS keeps Cmd+Option+D for the Dock.
+	assert.deepEqual(command.defaults["desktop:macos"].modifiers, ["primary", "shift"]);
+	const resolved = command.resolve({ modal: null });
+	assert.equal(resolved.status, "handled");
+	t.setPending(null);
+	resolved.run();
+	assert.equal(t.getPending(), "s1", "the binding raises the dialog, never the deletion");
+	t.setPending(null);
+});
+
+ test("the shortcut blocks without an open Session", async () => {
+	const { ctx, captured } = fakeCtx();
+	await bundle.apply(ctx);
+	const [command] = captured.shortcuts;
+	assert.deepEqual(command.resolve({ modal: null }), { status: "blocked", reason: "请先选择一个会话" });
 });
 
 test("the confirmation dialog renders nothing with no request and the full copy with one", () => {

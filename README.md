@@ -12,7 +12,7 @@
 Since DSH 0.1.7 the harness itself owns archived sessions — `WorkspaceRegistry.archiveSession` / `unarchiveSession`, the archived-row filter (hide / show / only), archived row styling, pinning, and the session activity gate. This plugin therefore **does not fork or replace any browser surface**: it leaves the official `ui-workspace` row exactly where the composition put it and contributes one row-menu action plus its confirmation dialog into the official sidebar.
 
 - Host half (internal `dsh-archive-manager-workspace` / `dsh-archive-manager-projcache`): `WorkspaceRegistry` and `SessionProjectionCache` subclasses that add `deleteSession` and `delete(id)` / `whenIdle()`, exposed as a Typert Remote endpoint.
-- Client half (internal `dsh-archive-manager-client`): a small browser bundle registering `sidebar.workspaces.session.menu.item` (the destructive "Delete session" row) and a frame-wide `shell.overlay` confirmation dialog, in Simplified Chinese and English.
+- Client half (internal `dsh-archive-manager-client`): a small browser bundle contributing one structured `contextMenus` action (the destructive "Delete session" entry, rendered below Archive) with its keyed trash icon and `Delete session` command, plus a frame-wide `shell.overlay` confirmation dialog, in Simplified Chinese and English.
 
 The plugin ships as a **single npm package** (`@gamegeek-saikel/dsh-archive-manager`) containing the three implementations as internal submodules. Its `cordis.patch.yml` substitutes the two host rows it extends and inserts its own rows. **Official package files are never modified.**
 
@@ -46,7 +46,7 @@ npx @deepseek-ai/dsh web
 
 This installs the single npm package through the DSH CLI, which applies the package's root `cordis.patch.yml` (disables the stock `workspace` and `session-projection-cache` rows; inserts `workspace-archive-manager`, `session-projection-cache-archive-manager`, and `ui-workspace-archive-manager`). The stock `ui-workspace` row is left enabled.
 
-The plugin declares and is verified against DSH `~0.2.2-rc.5`. Its `@deepseek-ai/dsh*` peer ranges name the DSH release line it runs on, and the harness refuses to load a bundle whose peers reject the running runtime — so a version built for one line is never installed into the other.
+The plugin declares and is verified against DSH `~0.2.3-alpha.2`. Its `@deepseek-ai/dsh*` peer ranges name the DSH release line it runs on, and the harness refuses to load a bundle whose peers reject the running runtime — so a version built for one line is never installed into the other.
 
 ## Overview
 
@@ -67,7 +67,7 @@ Deleting a session in DSH touches several independent stores whose ordering matt
 | Remote API | Typert endpoint `workspaceRegistry/deleteSession`; legacy `/api/workspace.*` untouched |
 | Inheritance | Archive / unarchive / pin / activity gate are the shipped `WorkspaceRegistry` methods, unmodified |
 | Delete semantics | Permanent; live session flush → detach → `session/disposed`; cache write-behind awaited before row delete; subagent children cascade (origin `subagent` only — fork branches never) |
-| UI surfaces | One `sidebar.workspaces.session.menu.item` row + one `shell.overlay` dialog |
+| UI surfaces | One structured `contextMenus` action (icon + command) + one `shell.overlay` dialog |
 | Locale | Simplified Chinese (source) + English |
 | Tests | 19 cases across 3 `node:test` suites (host, client bundle, client remote) |
 
@@ -77,14 +77,14 @@ Once installed and restarted:
 
 | Surface | Description |
 |---|---|
-| Session row menu | A destructive "Delete session" row, separated from the shipped pin/rename/fork/archive rows (order 500) |
+| Session row menu | A destructive "Delete session" entry at the menu's bottom, below Archive (`afterContent`, order 700), with a trash icon and its own shortcut |
 | Delete dialog | Body-portaled confirmation: what is removed, the fork-branch carve-out, a pending state, and a failure that keeps the dialog open with the Host's message |
 | Live session delete | Composer greys out, row disappears, UI does not crash |
 | Archived sessions | Unchanged: the official filter (hide / show / only), styling, guarding, and unarchive still own them |
 
 ### Restart verification checklist
 
-1. A session row's "..." menu shows "Delete session" **after** the shipped rows, separated by a hairline.
+1. A session row's "..." menu shows "Delete session" **below** the shipped Archive row, separated by a hairline, with a trash icon and its shortcut label.
 2. Confirming permanently removes the session with no disk residue:
    - `~/.dsh\sessions\…\session-<id>\` no longer exists;
    - `~/.dsh\storages\workspace.json` — `global.archivedSessionIds`, `global.pinnedSessionIds`, and every workspace's `sessionIds` no longer contain the id;
@@ -118,7 +118,8 @@ The method is exported as a Typert Remote endpoint through the service's `typert
 
 A hand-written, self-registering bundle (`window.__ModuleLoader__.load({ id, factory })`) that requires only the shell's platform seed table (`react`, `@deepseek-ai/dsh-client-ui-primitives`). It contributes:
 
-- `sidebar.workspaces.session.menu.item` — one `MenuItemButton` (`danger`, `separatorBefore`, order 500) that closes the menu and raises the request;
+- `ctx.contextMenus.register` — one `session`-target action (`danger`, `separatorBefore`, `afterContent`, order 700, `commandId: archiveManager.deleteSession`) that raises the request, its icon through the keyed `contextMenu.icon` slot, and the `archiveManager.deleteSession` command registered through `ctx.shortcuts`;
+- `sidebar.workspaces.session.menu.item` — no longer used: that legacy slot always renders before Archive;
 - `shell.overlay` — the frame-wide `Modal` confirmation, so the dialog outlives the menu row that opened it;
 - `ARCHIVE_MANAGER_REMOTE` — the `workspaceRegistry/deleteSession` descriptor, whose strict codecs follow the generated 0.2.0 contract `{ mode: 'strict', typeSymbol, create() }` with dependency-free shims (no second zod copy in the bundle).
 
