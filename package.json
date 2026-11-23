@@ -84,11 +84,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Saikel-Orado-Liu/dsh-archive-manager.git"
+    "url": "git+https://github.com/GameGeek-Saikel/dsh-archive-manager.git"
   },
-  "homepage": "https://github.com/Saikel-Orado-Liu/dsh-archive-manager#readme",
+  "homepage": "https://github.com/GameGeek-Saikel/dsh-archive-manager#readme",
   "bugs": {
-    "url": "https://github.com/Saikel-Orado-Liu/dsh-archive-manager/issues"
+    "url": "https://github.com/GameGeek-Saikel/dsh-archive-manager/issues"
   },
   "keywords": [
     "deepseek",
